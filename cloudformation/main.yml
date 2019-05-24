@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'transaction-publish-daily-task Fargate Stack'
+Parameters:
+  SubnetIds:
+    Type: CommaDelimitedList
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  RepositoryName:
+    Type: String
+  LogGroupName:
+    Type: String
+  ECSClusterName:
+    Type: String
+  # IsAssignedPublicIp:
+  #   Type: String
+  #   AllowedValues:
+  #     - ENABLED
+  #     - DISABLED
+  ImageTag:
+    Type: String
+    Default: latest
+  Port:
+    Type: Number
+  CPU:
+    Type: Number
+  Memory:
+    Type: Number
+
+Resources:
+  RepositoryStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: components/ECR.yml
+      Parameters:
+        RepositoryName: !Ref RepositoryName
+
+  CWEEventsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'ECSTask'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ecs:RunTask'
+                Resource:
+                  - '*'
+                Condition:
+                  ArnLike:
+                    'ecs:cluster': !GetAtt Cluster.Arn
+              - Effect: Allow
+                Action: 'iam:PassRole'
+                Resource:
+                  - '*'
+                Condition:
+                  StringLike:
+                    'iam:PassedToService': 'ecs-tasks.amazonaws.com'
+
+  TaskDefinitionStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: TaskDefinition.yml
+      Parameters:
+        RepositoryName: !Ref RepositoryName
+        LogGroupName: !Ref LogGroupName
+        CPU: !Ref CPU
+        Memory: !Ref Memory
+        Port: !Ref Port
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ECSClusterName
+
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'EventRule'
+      EventPattern:
+        source:
+          - 'aws.ecr'
+        detail:
+          eventName:
+            - 'PutImage'
+          requestParameters:
+            repositoryName:
+              - !Ref RepositoryName
+            imageTag:
+              - !Ref ImageTag
+      State: 'ENABLED'
+      # Targets:
+      #   - Id: hgoevfgggvvv
+      #     Arn: !GetAtt Cluster.Arn
+      #     RoleArn: !GetAtt CWEEventsRole.Arn
+      #     EcsParameters:
+      #       TaskDefinitionArn: !GetAtt TaskDefinitionStack.Outputs.TaskDefinition
+      #       TaskCount: 1
+      #       # LaunchType: FARGATE
+      #       # NetworkConfiguration:
+      #       #   awsvpcConfiguration:
+      #       #     Subnets:
+      #       #       - !Ref SubnetAId
+      #       #       - !Ref SubnetCId
+      #       #     SecurityGroups:
+      #       #       - !Ref SecurityGroup
+      #       #     AssignPublicIp: !Ref IsAssignedPublicIp
+      #       # PlatformVersion: LATEST
+
+  SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub ${RepositoryName}securitygroup
+      GroupDescription: !Sub ${RepositoryName}
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref Port
+          ToPort: !Ref Port
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VpcId
+
+Outputs:
+  SubnetIds:
+    Value: !Ref SubnetAId
+  SecurityGroup:
+    Value: !Ref SecurityGroup
+  IAMRole:
+    Value: !GetAtt CWEEventsRole.Arn
+  TaskDefinition:
+    Value: !GetAtt TaskDefinitionStack.Outputs.TaskDefinition
+  EventRule:
+    Value: !Ref EventRule
+  Cluster:
+    Value: !GetAtt Cluster.Arn

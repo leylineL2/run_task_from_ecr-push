@@ -1,0 +1,15 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bronx fargate'
+Parameters:
+  RepositoryName:
+    Type: String
+
+Resources:
+  Repository:
+    Type: 'AWS::ECR::Repository'
+    Properties:
+      RepositoryName: !Ref RepositoryName
+
+Outputs:
+  RepositoryArn:
+    Value: !GetAtt Repository.Arn

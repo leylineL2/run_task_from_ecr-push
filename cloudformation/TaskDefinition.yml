@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'TaskDefinition'
+Parameters:
+  RepositoryName:
+    Type: String
+  LogGroupName:
+    Type: String
+  Port:
+    Type: String
+  CPU:
+    Type: Number
+  Memory:
+    Type: Number
+
+Resources:
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'ECSTask'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action: 'logs:CreateLogStream'
+                Resource: '*'
+              - Effect: 'Allow'
+                Action: 'logs:PutLogEvents'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:AttachNetworkInterface
+                  - ec2:CreateNetworkInterface
+                  - ec2:CreateNetworkInterfacePermission
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DeleteNetworkInterfacePermission
+                  - ec2:Describe*
+                  - ec2:DetachNetworkInterface
+                  - elasticloadbalancing:DeregisterInstancesFromLoadBalancer
+                  - elasticloadbalancing:DeregisterTargets
+                  - elasticloadbalancing:Describe*
+                  - elasticloadbalancing:RegisterInstancesWithLoadBalancer
+                  - elasticloadbalancing:RegisterTargets
+                  - route53:ChangeResourceRecordSets
+                  - route53:CreateHealthCheck
+                  - route53:DeleteHealthCheck
+                  - route53:Get*
+                  - route53:List*
+                  - route53:UpdateHealthCheck
+                  - servicediscovery:DeregisterInstance
+                  - servicediscovery:Get*
+                  - servicediscovery:List*
+                  - servicediscovery:RegisterInstance
+                  - servicediscovery:UpdateInstanceCustomHealthStatus
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                Resource: arn:aws:ec2:*:*:network-interface/*
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'ECSExecution'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - ssm:DescribeParameters
+                  - ssm:GetParametersByPath
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*
+                Effect: 'Allow'
+              - Action: kms:Decrypt
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:key/alias/aws/ssm
+                Effect: Allow
+              - Action: 'ecr:GetAuthorizationToken'
+                Resource: '*'
+                Effect: 'Allow'
+              - Action: 'ecr:BatchCheckLayerAvailability'
+                Resource: '*'
+                Effect: 'Allow'
+              - Action: 'ecr:GetDownloadUrlForLayer'
+                Resource: '*'
+                Effect: 'Allow'
+              - Action: 'ecr:BatchGetImage'
+                Resource: '*'
+                Effect: 'Allow'
+              - Action: 'logs:CreateLogStream'
+                Resource: '*'
+                Effect: 'Allow'
+              - Action: 'logs:PutLogEvents'
+                Resource: '*'
+                Effect: 'Allow'
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub /ecs/${LogGroupName}
+  TaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      Cpu: !Ref CPU
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      Memory: !Ref Memory
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - PortMappings:
+            - HostPort: !Ref Port
+              Protocol: tcp
+              ContainerPort: !Ref Port
+          Cpu: 0
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepositoryName}:latest'
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: ecs
+          Name: !Ref RepositoryName
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+
+Outputs:
+  TaskDefinition:
+    Value: !Ref TaskDefinition
